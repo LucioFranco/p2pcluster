@@ -1,4 +1,5 @@
 use codec::{Msg, MsgCodec};
+use futures::future::join_all;
 use futures::sync::mpsc::{self, UnboundedSender};
 use futures::{Future, Sink, Stream};
 use std::collections::HashMap;
@@ -27,18 +28,15 @@ impl Node {
         }
     }
 
-    pub fn run(
-        &self,
-        addrs: Vec<SocketAddr>,
-    ) -> impl Future<Item = (), Error = io::Error> {
+    pub fn run(&self, addrs: Vec<SocketAddr>) -> impl Future<Item = (), Error = io::Error> {
         let inner = self.inner.clone();
 
-        for addr in addrs {
-            let client = Node::connect(inner.clone(), addr);
-            tokio::spawn(client.then(|_| Ok(())));
-        }
+        let clients = addrs
+            .into_iter()
+            .map(|addr| Node::connect(inner.clone(), addr))
+            .collect::<Vec<_>>();
 
-        self.serve()
+        self.serve().join(join_all(clients)).map(|_| ())
     }
 
     fn connect(
